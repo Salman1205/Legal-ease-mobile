@@ -39,3 +39,29 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+.vercel
+
+# Environment files
+.env
+.env.*
+backend/.env
+backend/.env.*
+
+# Secrets
+*.secret
+
+# Backend generated/local files
+backend/data/**/*.json
+backend/dist/
+backend/.vercel/
+
+# Local workspace metadata
+.claude/
+
+# Optional local docs
+UI_UX_AUDIT.md
+UI_UX_CHANGES.md
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
