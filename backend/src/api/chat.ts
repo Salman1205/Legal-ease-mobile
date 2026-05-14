@@ -7,6 +7,7 @@ import {
   detectInjection,
   redactPii,
   validateAnswer,
+  isLegalDocument,
   LEGALEASE_SCOPE,
   RESPONSE_TEMPLATE_INSTRUCTION,
   REFUSAL_INJECTION,
@@ -14,6 +15,7 @@ import {
   REFUSAL_DANGEROUS,
   REFUSAL_ZERO_EVIDENCE,
   REFUSAL_GENERATION_FAILED,
+  REFUSAL_NOT_A_LEGAL_DOCUMENT,
 } from '../services/guardrails.js';
 
 export const chatRouter = Router();
@@ -95,9 +97,20 @@ chatRouter.post('/', async (req: Request, res: Response): Promise<void> => {
 
     if (hasDocument && document_context) {
       if (intentClassification.intent === 'document_analysis' && !isLawyerMode) {
+        if (!isLegalDocument(document_context)) {
+          console.warn('Refusal: uploaded document is not a legal document');
+          res.json(refusalResponse(REFUSAL_NOT_A_LEGAL_DOCUMENT, 'not_a_legal_document'));
+          return;
+        }
+
         systemPrompt = `You are LegalEase, an AI legal assistant for Pakistani law.
 
-The user has uploaded a document and is asking about it. Focus on analyzing the document content.
+The user has uploaded a LEGAL document and is asking about it.
+
+IMPORTANT: Begin your response by stating the document type in the format:
+"This appears to be a [contract / FIR / court notice / legal notice / ordinance / deed / other legal document]."
+
+Then analyze the document content.
 
 DOCUMENT (${(documentType || 'text').toUpperCase()}):
 ${document_context}
@@ -105,10 +118,11 @@ ${document_context}
 USER QUESTION: ${message}
 
 INSTRUCTIONS:
-- Carefully analyze the document
-- Answer the user's specific question
-- If it's legal text, explain in simple terms
-- Be direct and helpful`;
+- State the document type as the first sentence.
+- Carefully analyze the document.
+- Answer the user's specific question.
+- If it's legal text, explain in simple terms.
+- Be direct and helpful.`;
       } else {
         const searchResults = await searchService.searchLegalContext(message, 10);
         sources = searchService.formatResults(searchResults);

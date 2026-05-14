@@ -71,6 +71,18 @@ const PK_LAW_DOMAINS: readonly DomainGroup[] = [
     keywords: ['pakistan', 'pakistani', 'sindh', 'punjab', 'balochistan',
       'khyber pakhtunkhwa', ' kp ', 'azad kashmir', 'islamabad'],
   },
+  // Generic legal English vocabulary — catches common legal questions that do
+  // not mention Pakistan explicitly but are clearly about legal matters.
+  {
+    label: 'legal_general',
+    keywords: [
+      'court', 'lawyer', 'advocate', 'judge', 'magistrate', 'rights',
+      'sentence', 'fine', 'sue', 'lawsuit', 'eviction', 'custody',
+      'alimony', 'arrest', 'bail', 'contract', 'will', 'inheritance',
+      'ordinance', 'statute', 'jurisdiction', 'plaintiff', 'defendant',
+      'hearing', 'appeal', 'legal', 'deed', 'summons', 'petition',
+    ],
+  },
 ];
 
 /** Foreign-jurisdiction patterns — checked BEFORE PK signals to prevent false positives. */
@@ -153,7 +165,7 @@ export const checkScope = (query: string): ScopeVerdict => {
     return { inScope: false, category: 'out_of_scope', matchedSignal: outOfScope };
   }
 
-  return { inScope: true, category: 'legal_pk', matchedSignal: 'default_allow' };
+  return { inScope: false, category: 'out_of_scope', matchedSignal: 'no_legal_signal_detected' };
 };
 
 // ============================================================================
@@ -224,6 +236,38 @@ export const redactPii = (text: string): string => {
     .replace(IBAN_RE, '[REDACTED_ACCOUNT]')
     .replace(PK_PHONE_RE, '[REDACTED_PHONE]')
     .replace(EMAIL_RE, '[REDACTED_EMAIL]');
+};
+
+// ============================================================================
+// LEGAL DOCUMENT DETECTION
+// ============================================================================
+
+const LEGAL_DOCUMENT_KEYWORDS: readonly string[] = [
+  'agreement', 'contract', 'party', 'parties', 'hereby', 'witnesseth',
+  'fir', 'notice', 'plaintiff', 'defendant', 'court', 'ordinance',
+  'section', 'clause', 'undersigned', 'jurisdiction', 'governing law',
+  'lessor', 'lessee', 'landlord', 'tenant', 'deed', 'summons', 'petition',
+  'writ', 'complaint', 'judgment', 'decree', 'magistrate', 'shall be',
+];
+
+const LEGAL_DOC_KEYWORD_THRESHOLD = 2;
+const LEGAL_DOC_SCAN_CHARS = 800;
+
+/**
+ * Returns true if the first 800 characters of the document contain
+ * at least 2 distinct legal-document keywords. The 2-keyword threshold
+ * avoids false positives on incidental matches (e.g., "tennis court"
+ * in a resume).
+ */
+export const isLegalDocument = (documentText: string): boolean => {
+  if (!documentText || documentText.length < 20) return false;
+  const head = documentText.substring(0, LEGAL_DOC_SCAN_CHARS).toLowerCase();
+  const matched = new Set<string>();
+  for (const kw of LEGAL_DOCUMENT_KEYWORDS) {
+    if (head.includes(kw)) matched.add(kw);
+    if (matched.size >= LEGAL_DOC_KEYWORD_THRESHOLD) return true;
+  }
+  return false;
 };
 
 // ============================================================================
@@ -360,3 +404,9 @@ export const REFUSAL_GENERATION_FAILED =
   "I tried to answer your question but couldn't produce a response in the " +
   "right format. Please rephrase your question more simply (one issue at a " +
   "time), or try again in a moment.";
+
+export const REFUSAL_NOT_A_LEGAL_DOCUMENT =
+  "I can only analyze legal documents (contracts, FIRs, court notices, " +
+  "legal notices, ordinances, deeds, etc.). The document you uploaded " +
+  "does not look like a legal document. If this was meant to be a legal " +
+  "document, please double-check the file you uploaded and try again.";
