@@ -85,11 +85,11 @@ describe('checkScope — Urdu script defaults to in-scope', () => {
   }
 });
 
-describe('checkScope — default allow + empty', () => {
-  it('default_allow when no rule matches', () => {
+describe('checkScope — default deny + empty', () => {
+  it('default deny when no legal signal matches', () => {
     const v = checkScope('Tell me something interesting.');
-    expect(v.inScope).toBe(true);
-    expect(v.matchedSignal).toBe('default_allow');
+    expect(v.inScope).toBe(false);
+    expect(v.matchedSignal).toBe('no_legal_signal_detected');
   });
   it('refuses empty string', () => {
     const v = checkScope('   ');
@@ -195,6 +195,82 @@ describe('redactPii', () => {
 
   it('handles empty string', () => {
     expect(redactPii('')).toBe('');
+  });
+});
+
+import { isLegalDocument } from '../src/services/guardrails.js';
+
+describe('checkScope — default-deny (new)', () => {
+  const refusedQueries = [
+    'How do I reverse a linked list?',
+    'Explain quantum physics in simple terms',
+    'What is the capital of France?',
+    'Tell me a poem about love',
+    'Write me a haiku about cats',
+  ];
+  for (const q of refusedQueries) {
+    it(`refuses non-legal: ${q.slice(0, 35)}`, () => {
+      const v = checkScope(q);
+      expect(v.inScope).toBe(false);
+      expect(v.category).toBe('out_of_scope');
+    });
+  }
+});
+
+describe('checkScope — general legal vocabulary now in-scope', () => {
+  const inScopeQueries = [
+    'Can I sue my employer for unpaid wages?',
+    'What are my rights as a worker?',
+    'Do I have grounds for an appeal?',
+    'How does the eviction process work?',
+    'What does the court need for a divorce?',
+  ];
+  for (const q of inScopeQueries) {
+    it(`accepts general legal: ${q.slice(0, 35)}`, () => {
+      const v = checkScope(q);
+      expect(v.inScope).toBe(true);
+      expect(v.category).toBe('legal_pk');
+    });
+  }
+});
+
+describe('isLegalDocument', () => {
+  it('recognizes a contract', () => {
+    const text = 'THIS AGREEMENT is entered into between the parties hereby agreeing to the following clauses. The party of the first part shall...';
+    expect(isLegalDocument(text)).toBe(true);
+  });
+
+  it('recognizes an FIR', () => {
+    const text = 'FIR No. 234/2025\nComplainant: Mr X\nSection 379 PPC. The undersigned officer of the court hereby records...';
+    expect(isLegalDocument(text)).toBe(true);
+  });
+
+  it('rejects a resume', () => {
+    const text = 'John Doe\nSoftware Engineer\nExperience: 5 years at TechCorp building React applications. Skilled in JavaScript, TypeScript, and Node.js.';
+    expect(isLegalDocument(text)).toBe(false);
+  });
+
+  it('rejects a recipe', () => {
+    const text = 'Chicken Biryani Recipe\nIngredients: 2 cups basmati rice, 1 kg chicken, onions, yogurt. Preheat the oven to 350F. Marinate the chicken for 2 hours.';
+    expect(isLegalDocument(text)).toBe(false);
+  });
+
+  it('rejects source code', () => {
+    const text = 'function reverseLinkedList(head) {\n  let prev = null;\n  let current = head;\n  while (current) {\n    const next = current.next;\n    current.next = prev;\n  }\n}';
+    expect(isLegalDocument(text)).toBe(false);
+  });
+
+  it('rejects a single-keyword text (below threshold)', () => {
+    const text = 'See you in court tomorrow! It will be fun. Bring snacks.';
+    expect(isLegalDocument(text)).toBe(false);
+  });
+
+  it('rejects empty string', () => {
+    expect(isLegalDocument('')).toBe(false);
+  });
+
+  it('rejects very short text', () => {
+    expect(isLegalDocument('agreement contract')).toBe(false); // < 20 chars
   });
 });
 

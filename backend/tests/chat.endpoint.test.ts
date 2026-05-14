@@ -56,6 +56,7 @@ vi.mock('../src/services/search.js', async () => {
 });
 
 const { chatRouter } = await import('../src/api/chat.js');
+const { llmService } = await import('../src/services/llm.js');
 
 const buildApp = (): Express => {
   const app = express();
@@ -108,5 +109,23 @@ describe('POST /api/chat', () => {
     expect(r.body.refusal_reason).toBe('out_of_scope');
     expect(r.body.response).toContain('seven areas');
     expect(r.body.sources).toEqual([]);
+  });
+
+  it('non-legal document upload returns REFUSAL_NOT_A_LEGAL_DOCUMENT', async () => {
+    vi.mocked(llmService.classifyQuery).mockResolvedValueOnce({ intent: 'document_analysis', needs_rag: false, confidence: 0.9 });
+    const app = buildApp();
+    const r = await request(app)
+      .post('/api/chat')
+      .send({
+        message: 'analyze this legal document for me',
+        conversation_history: [],
+        document_context: 'John Doe\nSoftware Engineer\nExperience: 5 years at TechCorp building React applications. Skilled in JavaScript and Node.js.',
+        document_name: 'resume.pdf',
+      });
+
+    expect(r.status).toBe(200);
+    expect(r.body.status).toBe('refused');
+    expect(r.body.refusal_reason).toBe('not_a_legal_document');
+    expect(r.body.response).toContain('legal document');
   });
 });

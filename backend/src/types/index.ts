@@ -79,7 +79,8 @@ export type RefusalReason =
   | 'out_of_scope'
   | 'dangerous'
   | 'zero_evidence'
-  | 'generation_failed';
+  | 'generation_failed'
+  | 'not_a_legal_document';
 
 export interface ChatResponse {
   response: string;
