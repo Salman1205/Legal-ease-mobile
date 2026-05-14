@@ -85,7 +85,12 @@ const ChatMessage = ({ message }) => {
                             <Text style={st.userText}>{message.content}</Text>
                         </LinearGradient>
                     ) : (
-                        <View style={[st.aiBubble, isPending && st.aiBubblePending, isError && st.aiBubbleError]}>
+                        <View style={[
+                            st.aiBubble,
+                            isPending && st.aiBubblePending,
+                            isError && st.aiBubbleError,
+                            Boolean(message.isRefusal) && st.aiBubbleRefusal,
+                        ]}>
                             {isPending ? (
                                 <View style={st.pendingWrap}>
                                     <LoadingDots />
@@ -177,6 +182,10 @@ const st = StyleSheet.create({
     aiBubbleError: {
         borderColor: colors.errorBorder,
         backgroundColor: colors.errorMuted,
+    },
+    aiBubbleRefusal: {
+        borderColor: '#f59e0b',
+        backgroundColor: 'rgba(245, 158, 11, 0.08)',
     },
 
     pendingWrap: {

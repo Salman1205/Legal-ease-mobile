@@ -1,7 +1,20 @@
 import { Router, Request, Response } from 'express';
-import { ChatRequest, ChatResponse, SourceInfo } from '../types/index.js';
+import { ChatRequest, ChatResponse, SourceInfo, RefusalReason } from '../types/index.js';
 import { llmService } from '../services/llm.js';
-import { searchService } from '../services/search.js';
+import { searchService, LAW_REFERENCE_LINKS } from '../services/search.js';
+import {
+  checkScope,
+  detectInjection,
+  redactPii,
+  validateAnswer,
+  LEGALEASE_SCOPE,
+  RESPONSE_TEMPLATE_INSTRUCTION,
+  REFUSAL_INJECTION,
+  refusalOutOfScope,
+  REFUSAL_DANGEROUS,
+  REFUSAL_ZERO_EVIDENCE,
+  REFUSAL_GENERATION_FAILED,
+} from '../services/guardrails.js';
 
 export const chatRouter = Router();
 
@@ -19,6 +32,14 @@ const detectDocumentType = (documentName?: string): 'image' | 'text' | '' => {
   return /\.(jpg|jpeg|png|webp|gif)$/i.test(documentName) ? 'image' : 'text';
 };
 
+const refusalResponse = (message: string, reason: RefusalReason): ChatResponse => ({
+  response: message,
+  sources: [],
+  collections_used: [],
+  status: 'refused',
+  refusal_reason: reason,
+});
+
 chatRouter.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const body = (req.body || {}) as ChatRequest;
@@ -30,7 +51,28 @@ chatRouter.post('/', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    console.log(`Chat request: ${message.substring(0, 80)}...`);
+    // Use redacted text for logging — never write CNIC/phone/email to logs.
+    console.log(`Chat request: ${redactPii(message).substring(0, 80)}...`);
+
+    // ── GUARDRAIL: prompt injection ────────────────────────────────────────
+    if (detectInjection(message)) {
+      console.warn('Refusal: injection detected');
+      res.json(refusalResponse(REFUSAL_INJECTION, 'injection'));
+      return;
+    }
+
+    // ── GUARDRAIL: scope check ─────────────────────────────────────────────
+    const verdict = checkScope(message);
+    if (verdict.category === 'dangerous') {
+      console.warn(`Refusal: dangerous (${verdict.matchedSignal})`);
+      res.json(refusalResponse(REFUSAL_DANGEROUS, 'dangerous'));
+      return;
+    }
+    if (!verdict.inScope) {
+      console.warn(`Refusal: out_of_scope (${verdict.matchedSignal})`);
+      res.json(refusalResponse(refusalOutOfScope(verdict.matchedSignal), 'out_of_scope'));
+      return;
+    }
 
     if (document_context) {
       const originalLength = document_context.length;
@@ -80,7 +122,7 @@ INSTRUCTIONS:
           })
           .join('\n\n');
 
-        systemPrompt = `You are LegalEase, an AI legal assistant for Pakistani law.
+        systemPrompt = `You are LegalEase. ${LEGALEASE_SCOPE}
 
 DOCUMENT:
 ${document_context.substring(0, 800)}
@@ -88,7 +130,11 @@ ${document_context.substring(0, 800)}
 LEGAL CONTEXT:
 ${legalContext || 'No specific legal provisions found.'}
 
-Answer the user's question using the document and legal context. Reference specific laws/sections. Be concise.`;
+${LAW_REFERENCE_LINKS}
+
+${RESPONSE_TEMPLATE_INSTRUCTION}
+
+Answer the user's question using both the document and the legal context. Reference specific laws/sections.`;
       }
     } else {
       const legalClassification = await llmService.classifyLegalQuery(message);
@@ -110,19 +156,27 @@ Answer the user's question using the document and legal context. Reference speci
           .join('\n\n');
 
         if (searchResults.length === 0) {
-          systemPrompt =
-            'You are LegalEase, an AI legal assistant for Pakistani law. The database search found no directly relevant sections. Provide GENERAL legal guidance based on Pakistani legal principles. Suggest what type of laws would typically apply. Recommend consulting a lawyer.';
+          systemPrompt = `You are LegalEase. ${LEGALEASE_SCOPE}
+
+The database search found no directly relevant sections. Provide GENERAL Pakistani legal principles. Do NOT cite a specific Section/Article number you are not certain of. Recommend consulting a lawyer.
+
+${LAW_REFERENCE_LINKS}
+
+${RESPONSE_TEMPLATE_INSTRUCTION}`;
         } else {
-          systemPrompt = `You are LegalEase, an AI legal assistant for Pakistani law.
+          systemPrompt = `You are LegalEase. ${LEGALEASE_SCOPE}
+
+CRITICAL RULES:
+1. ONLY cite Sections/Articles/Acts that appear in DATABASE CONTEXT below.
+2. Some sources may be from older laws — note if they may have been amended.
+3. Provide practical, actionable advice along with legal references.
 
 DATABASE CONTEXT:
 ${legalContext}
 
-Provide a structured response with:
-- Overview of the situation
-- Relevant legal provisions (from DATABASE only)
-- Practical advice and next steps
-- Note if consulting a lawyer is recommended`;
+${LAW_REFERENCE_LINKS}
+
+${RESPONSE_TEMPLATE_INSTRUCTION}`;
         }
       }
     }
@@ -134,8 +188,22 @@ Provide a structured response with:
       400
     );
 
+    // ── GUARDRAIL: validate LLM output ─────────────────────────────────────
+    const validation = validateAnswer(response, sources);
+    if (!validation.valid) {
+      if (validation.reason === 'hallucinated_citation') {
+        console.warn('Refusal: hallucinated citation with zero sources');
+        res.json(refusalResponse(REFUSAL_ZERO_EVIDENCE, 'zero_evidence'));
+        return;
+      }
+      console.warn(`Validation failed: ${validation.reason}`);
+      res.json(refusalResponse(REFUSAL_GENERATION_FAILED, 'generation_failed'));
+      return;
+    }
+
+    const finalResponse = validation.fixedAnswer ?? response;
     const chatResponse: ChatResponse = {
-      response,
+      response: finalResponse,
       sources,
       collections_used: collectionsUsed,
       status: 'success',

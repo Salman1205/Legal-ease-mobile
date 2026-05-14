@@ -154,6 +154,36 @@ export const apiService = {
         return response.json();
     },
 
+    // Native path — upload a file URI (from expo-av Recording) to /transcribe.
+    // Mirrors buildFileFormData's native branch so multer parses it correctly.
+    transcribeAudioFile: async (fileAsset, { language } = {}) => {
+        const formData = new FormData();
+        const name = fileAsset.name || 'speech.m4a';
+        const type = fileAsset.mimeType || fileAsset.type || 'audio/m4a';
+        if (Platform.OS === 'web') {
+            if (fileAsset.uri) {
+                const blob = await (await fetch(fileAsset.uri)).blob();
+                const typedBlob = blob.type ? blob : new Blob([blob], { type });
+                formData.append('file', typedBlob, name);
+            } else {
+                throw new Error('Unable to read audio: no URI available.');
+            }
+        } else {
+            formData.append('file', { uri: fileAsset.uri, name, type });
+        }
+        if (language) formData.append('language', language);
+        const response = await fetchWithTimeout(
+            `${API_BASE_URL}/transcribe`,
+            { method: 'POST', body: formData },
+            REQUEST_TIMEOUT * 2
+        );
+        if (!response.ok) {
+            const errorMessage = await parseErrorResponse(response);
+            throw new Error(errorMessage);
+        }
+        return response.json();
+    },
+
     analyzeContract: async (fileAsset) => {
         const formData = await buildFileFormData(fileAsset);
         const response = await fetchWithTimeout(

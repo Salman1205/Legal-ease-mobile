@@ -74,11 +74,19 @@ export interface SourceInfo {
   category: string;
 }
 
+export type RefusalReason =
+  | 'injection'
+  | 'out_of_scope'
+  | 'dangerous'
+  | 'zero_evidence'
+  | 'generation_failed';
+
 export interface ChatResponse {
   response: string;
   sources: SourceInfo[];
   collections_used: string[];
   status: string;
+  refusal_reason?: RefusalReason;
 }
 
 // ============================================================================

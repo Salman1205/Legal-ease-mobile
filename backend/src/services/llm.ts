@@ -29,12 +29,13 @@ const LEGAL_CATEGORIES = [
 // All defaults are the SMALL / fast Groq models:
 //   - llama-3.1-8b-instant: Groq's smallest chat model (8B params).
 //   - llama-4-scout: MoE vision model, only ~3.5B active params per token.
-//   - distil-whisper-large-v3-en: smallest whisper on Groq (English-only).
-//   - whisper-large-v3-turbo: smallest *multilingual* whisper (used when language != en).
+//   - whisper-large-v3-turbo: fast multilingual whisper (currently recommended by Groq).
+//     Note: distil-whisper-large-v3-en was decommissioned by Groq, so we default both
+//     English and multilingual transcription to whisper-large-v3-turbo.
 // Override via env if you want different models.
 const MODEL_ID = process.env.GROQ_MODEL_ID || 'llama-3.1-8b-instant';
 const VISION_MODEL_ID = process.env.GROQ_VISION_MODEL_ID || 'meta-llama/llama-4-scout-17b-16e-instruct';
-const TRANSCRIBE_MODEL_EN = process.env.GROQ_TRANSCRIBE_MODEL_EN || 'distil-whisper-large-v3-en';
+const TRANSCRIBE_MODEL_EN = process.env.GROQ_TRANSCRIBE_MODEL_EN || 'whisper-large-v3-turbo';
 const TRANSCRIBE_MODEL_MULTI = process.env.GROQ_TRANSCRIBE_MODEL_MULTI || 'whisper-large-v3-turbo';
 const MAX_HISTORY_MESSAGES = 1;
 const MAX_PROMPT_CHARS = 800;

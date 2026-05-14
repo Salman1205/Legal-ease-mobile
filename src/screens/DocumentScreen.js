@@ -31,25 +31,6 @@ const calcRiskScore = (analysis) => {
     return Math.max(0, Math.min(100, Math.round(100 - risks * 12 - missing * 7 - recs * 4)));
 };
 
-const formatRiskItem = (item) => {
-    if (!item) return '';
-    if (typeof item === 'string') return item;
-    const sev = item.severity ? `[${String(item.severity).toUpperCase()}] ` : '';
-    const title = item.title || item.category || 'Risk';
-    const desc = item.description ? ` — ${item.description}` : '';
-    const law = item.law_reference ? ` (${item.law_reference})` : '';
-    return `${sev}${title}${desc}${law}`;
-};
-
-const formatMissingClause = (item) => {
-    if (!item) return '';
-    if (typeof item === 'string') return item;
-    const title = item.title || 'Missing clause';
-    const why = item.why_needed ? ` — ${item.why_needed}` : '';
-    const law = item.law_reference ? ` (${item.law_reference})` : '';
-    return `${title}${why}${law}`;
-};
-
 const formatApplicableLaw = (item) => {
     if (!item) return '';
     if (typeof item === 'string') return item;
@@ -77,6 +58,149 @@ const STEP_KEYS = [
     { key: 'document.stepRisks', icon: 'warning-outline' },
     { key: 'document.stepReport', icon: 'sparkles-outline' },
 ];
+
+// Expandable risk card — shows severity, description, problematic clause text,
+// suggested replacement clause, and law reference (mirrors the web RiskCard).
+const SEVERITY_STYLES = {
+    critical: { color: '#DC2626', bg: '#FEE2E2', label: 'CRITICAL' },
+    high: { color: '#EA580C', bg: '#FFEDD5', label: 'HIGH' },
+    medium: { color: '#D97706', bg: '#FEF3C7', label: 'MEDIUM' },
+    low: { color: '#65A30D', bg: '#ECFCCB', label: 'LOW' },
+};
+
+const RiskCard = ({ risk, idx, isLast }) => {
+    const [open, setOpen] = useState(idx === 0);
+    if (!risk) return null;
+    const sev = SEVERITY_STYLES[String(risk.severity || 'medium').toLowerCase()] || SEVERITY_STYLES.medium;
+    return (
+        <View style={[sec.card, !isLast && { marginBottom: 10 }, { borderLeftColor: sev.color }]}>
+            <AnimatedPressable onPress={() => setOpen(v => !v)} scaleValue={0.99}>
+                <View style={sec.cardHeader}>
+                    <View style={[sec.sevPill, { backgroundColor: sev.bg }]}>
+                        <Text style={[sec.sevPillText, { color: sev.color }]}>{sev.label}</Text>
+                    </View>
+                    {risk.category ? (
+                        <Text style={sec.cardCategory} numberOfLines={1}>{risk.category}</Text>
+                    ) : null}
+                    <Text style={sec.cardTitle} numberOfLines={open ? undefined : 2}>
+                        {cleanText(risk.title || 'Risk identified')}
+                    </Text>
+                    <Ionicons
+                        name={open ? 'chevron-up' : 'chevron-down'}
+                        size={16}
+                        color={colors.textTertiary}
+                    />
+                </View>
+            </AnimatedPressable>
+            {open && (
+                <View style={sec.cardBody}>
+                    {risk.description ? (
+                        <Text style={sec.cardDesc}>{cleanText(risk.description)}</Text>
+                    ) : null}
+
+                    {risk.original_clause ? (
+                        <View style={sec.clauseBlock}>
+                            <Text style={sec.clauseLabel}>Problematic clause</Text>
+                            <View style={[sec.clauseBox, sec.clauseBad]}>
+                                <Text style={[sec.clauseText, { color: '#7F1D1D' }]}>
+                                    {cleanText(risk.original_clause)}
+                                </Text>
+                            </View>
+                        </View>
+                    ) : null}
+
+                    {risk.suggested_fix ? (
+                        <View style={sec.clauseBlock}>
+                            <Text style={sec.clauseLabel}>Suggested replacement</Text>
+                            <View style={[sec.clauseBox, sec.clauseGood]}>
+                                <Text style={[sec.clauseText, { color: '#14532D' }]}>
+                                    {cleanText(risk.suggested_fix)}
+                                </Text>
+                            </View>
+                        </View>
+                    ) : null}
+
+                    {risk.law_reference ? (
+                        <Text style={sec.lawRef}>📋 {cleanText(risk.law_reference)}</Text>
+                    ) : null}
+                </View>
+            )}
+        </View>
+    );
+};
+
+// Expandable missing-clause card — shows why the clause is needed and the exact
+// draft clause text the user can insert (mirrors the web MissingCard).
+const MissingCard = ({ item, idx, isLast }) => {
+    const [open, setOpen] = useState(idx === 0);
+    if (!item) return null;
+    return (
+        <View style={[sec.card, !isLast && { marginBottom: 10 }, { borderLeftColor: '#818CF8' }]}>
+            <AnimatedPressable onPress={() => setOpen(v => !v)} scaleValue={0.99}>
+                <View style={sec.cardHeader}>
+                    <Ionicons name="alert-circle" size={16} color="#818CF8" />
+                    <Text style={[sec.cardTitle, { marginLeft: 4 }]} numberOfLines={open ? undefined : 2}>
+                        {cleanText(item.title || 'Missing clause')}
+                    </Text>
+                    <Ionicons
+                        name={open ? 'chevron-up' : 'chevron-down'}
+                        size={16}
+                        color={colors.textTertiary}
+                    />
+                </View>
+            </AnimatedPressable>
+            {open && (
+                <View style={sec.cardBody}>
+                    {item.why_needed ? (
+                        <Text style={sec.cardDesc}>{cleanText(item.why_needed)}</Text>
+                    ) : null}
+
+                    {item.suggested_text ? (
+                        <View style={sec.clauseBlock}>
+                            <Text style={sec.clauseLabel}>Suggested clause to add</Text>
+                            <View style={[sec.clauseBox, sec.clauseAdd]}>
+                                <Text style={[sec.clauseText, { color: '#3730A3' }]}>
+                                    {cleanText(item.suggested_text)}
+                                </Text>
+                            </View>
+                        </View>
+                    ) : null}
+
+                    {item.law_reference ? (
+                        <Text style={sec.lawRef}>📋 {cleanText(item.law_reference)}</Text>
+                    ) : null}
+                </View>
+            )}
+        </View>
+    );
+};
+
+// Group wrapper — renders a collapsible section header and maps items to cards.
+const CardSection = ({ title, items, color, icon, bg, renderItem, defaultOpen = false }) => {
+    const [open, setOpen] = useState(defaultOpen);
+    if (!items?.length) return null;
+    return (
+        <View style={sec.group}>
+            <AnimatedPressable onPress={() => setOpen(v => !v)} scaleValue={0.99}>
+                <View style={sec.header}>
+                    <LinearGradient colors={bg} style={sec.iconWrap} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+                        <Ionicons name={icon} size={13} color="#fff" />
+                    </LinearGradient>
+                    <Text style={sec.title}>{title}</Text>
+                    <View style={[sec.badge, { backgroundColor: color + '18' }]}>
+                        <Text style={[sec.badgeNum, { color }]}>{items.length}</Text>
+                    </View>
+                    <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textTertiary} />
+                </View>
+            </AnimatedPressable>
+            {open && (
+                <View style={sec.cardList}>
+                    {items.map((item, i) => renderItem(item, i, i === items.length - 1))}
+                </View>
+            )}
+        </View>
+    );
+};
 
 // Collapsible section
 const AnalysisSection = ({ title, items, color, icon, bg, defaultOpen = false }) => {
@@ -528,20 +652,26 @@ const DocumentScreen = ({ navigation }) => {
 
                         {/* Sections */}
                         <FadeInView delay={200} distance={12}>
-                            <AnalysisSection
+                            <CardSection
                                 title={t('document.risks')}
-                                items={(analysis.risks || []).map(formatRiskItem)}
+                                items={analysis.risks || []}
                                 color={colors.error}
                                 icon="warning"
                                 bg={['#F87171', '#EF4444']}
                                 defaultOpen
+                                renderItem={(item, i, isLast) => (
+                                    <RiskCard key={i} risk={item} idx={i} isLast={isLast} />
+                                )}
                             />
-                            <AnalysisSection
+                            <CardSection
                                 title={t('document.missing')}
-                                items={(analysis.missing_clauses || analysis.missing || []).map(formatMissingClause)}
+                                items={analysis.missing_clauses || analysis.missing || []}
                                 color={colors.warning}
                                 icon="alert-circle"
                                 bg={['#FBBF24', '#F59E0B']}
+                                renderItem={(item, i, isLast) => (
+                                    <MissingCard key={i} item={item} idx={i} isLast={isLast} />
+                                )}
                             />
                             <AnalysisSection
                                 title={t('document.applicableLaws')}
@@ -597,6 +727,75 @@ const sec = StyleSheet.create({
     itemBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderColor },
     dot: { width: 5, height: 5, borderRadius: 3, marginTop: 7, flexShrink: 0 },
     text: { color: colors.textSecondary, fontSize: 13, lineHeight: 20, flex: 1 },
+
+    // Expandable card list (risks & missing clauses)
+    cardList: { paddingHorizontal: 12, paddingTop: 4, paddingBottom: 12 },
+    card: {
+        backgroundColor: colors.bgPrimary || colors.bgSecondary,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.borderColor,
+        borderLeftWidth: 4,
+        overflow: 'hidden',
+    },
+    cardHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+    },
+    sevPill: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+    },
+    sevPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
+    cardCategory: { fontSize: 11, color: colors.textTertiary, fontStyle: 'italic' },
+    cardTitle: { flex: 1, color: colors.textPrimary, fontSize: 13, fontWeight: '600' },
+    cardBody: {
+        paddingHorizontal: 12,
+        paddingBottom: 14,
+        paddingTop: 2,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: colors.borderColor,
+    },
+    cardDesc: {
+        color: colors.textPrimary,
+        fontSize: 13,
+        lineHeight: 20,
+        marginTop: 10,
+        marginBottom: 10,
+    },
+    clauseBlock: { marginBottom: 10 },
+    clauseLabel: {
+        fontSize: 10,
+        fontWeight: '700',
+        letterSpacing: 0.5,
+        color: colors.textTertiary,
+        textTransform: 'uppercase',
+        marginBottom: 5,
+    },
+    clauseBox: {
+        borderRadius: 8,
+        borderWidth: 1,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+    },
+    clauseBad: { backgroundColor: '#FFF5F5', borderColor: '#FCA5A5' },
+    clauseGood: { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' },
+    clauseAdd: { backgroundColor: '#F5F3FF', borderColor: '#C7D2FE' },
+    clauseText: {
+        fontSize: 12,
+        lineHeight: 19,
+        fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+    },
+    lawRef: {
+        fontSize: 11,
+        color: colors.textTertiary,
+        fontStyle: 'italic',
+        marginTop: 2,
+    },
 });
 
 const st = StyleSheet.create({

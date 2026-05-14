@@ -1,13 +1,19 @@
 // MarkdownText v2 — improved legal markdown renderer
 // Better headings, code blocks, blockquotes, refined typography
 import React from 'react';
-import { Text, View, StyleSheet, Platform } from 'react-native';
+import { Text, View, StyleSheet, Platform, Linking } from 'react-native';
 import { colors, spacing } from '../constants/theme';
+
+const openLink = (url) => {
+    if (!url) return;
+    Linking.openURL(url).catch(() => { /* silently ignore failed deep-link */ });
+};
 
 const parseInline = (text, keyPrefix) => {
     if (!text) return null;
     const segments = [];
-    const regex = /\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`/g;
+    // Order matters: [text](url) is tried first so links win over *italic*.
+    const regex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`/g;
     let lastIndex = 0;
     let i = 0;
     let match;
@@ -16,22 +22,35 @@ const parseInline = (text, keyPrefix) => {
         if (match.index > lastIndex) {
             segments.push(text.slice(lastIndex, match.index));
         }
-        if (match[1] !== undefined) {
+        if (match[1] !== undefined && match[2] !== undefined) {
+            const label = match[1];
+            const url = match[2];
             segments.push(
-                <Text key={`${keyPrefix}-b${i++}`} style={inlineStyles.bold}>
-                    {match[1]}
-                </Text>
-            );
-        } else if (match[2] !== undefined) {
-            segments.push(
-                <Text key={`${keyPrefix}-i${i++}`} style={inlineStyles.italic}>
-                    {match[2]}
+                <Text
+                    key={`${keyPrefix}-a${i++}`}
+                    style={inlineStyles.link}
+                    onPress={() => openLink(url)}
+                    accessibilityRole="link"
+                >
+                    {label}
                 </Text>
             );
         } else if (match[3] !== undefined) {
             segments.push(
+                <Text key={`${keyPrefix}-b${i++}`} style={inlineStyles.bold}>
+                    {match[3]}
+                </Text>
+            );
+        } else if (match[4] !== undefined) {
+            segments.push(
+                <Text key={`${keyPrefix}-i${i++}`} style={inlineStyles.italic}>
+                    {match[4]}
+                </Text>
+            );
+        } else if (match[5] !== undefined) {
+            segments.push(
                 <Text key={`${keyPrefix}-c${i++}`} style={inlineStyles.inlineCode}>
-                    {' '}{match[3]}{' '}
+                    {' '}{match[5]}{' '}
                 </Text>
             );
         }
@@ -151,6 +170,11 @@ const MarkdownText = ({ content, baseColor }) => {
 const inlineStyles = StyleSheet.create({
     bold: { fontWeight: '700' },
     italic: { fontStyle: 'italic' },
+    link: {
+        color: colors.accentPrimary,
+        textDecorationLine: 'underline',
+        fontWeight: '500',
+    },
     inlineCode: {
         fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
         fontSize: 13,

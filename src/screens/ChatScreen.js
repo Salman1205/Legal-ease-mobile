@@ -280,46 +280,35 @@ const ChatScreen = ({ route }) => {
         const _kept = () => null;
     }, []);
 
-    // Native speech-to-text listeners
+    // Native mic: expo-av Recording ref. We record audio locally and upload to
+    // /api/transcribe (Groq Whisper) — the same path used on web. This works
+    // in Expo Go, custom dev clients, and production builds, so we no longer
+    // depend on expo-speech-recognition's native module being available.
+    const nativeRecordingRef = useRef(null);
+    const nativeAutoStopRef = useRef(null);
+
     useEffect(() => {
-        if (Platform.OS === 'web') return;
-        let cleanup;
+        if (Platform.OS === 'web') return undefined;
         try {
-            const { addSpeechRecognitionListener } = require('expo-speech-recognition');
+            // Importing expo-av upfront verifies the native module is linked.
+            require('expo-av');
             setIsMicSupported(true);
-            const subs = [
-                addSpeechRecognitionListener('start', () => {
-                    setIsListening(true);
-                }),
-                addSpeechRecognitionListener('end', () => {
-                    setIsListening(false);
-                    commitSpeechDraft();
-                }),
-                addSpeechRecognitionListener('error', (error) => {
-                    console.error('Native STT error:', error);
-                    setIsListening(false);
-                }),
-                addSpeechRecognitionListener('result', (event) => {
-                    const transcript = extractTranscript(event);
-                    if (!transcript) return;
-                    speechDraftRef.current = transcript;
-                    const hasFinalResult = Boolean(
-                        event?.isFinal
-                        || (Array.isArray(event?.results) && event.results.some((item) => item?.isFinal))
-                    );
-                    if (hasFinalResult) {
-                        appendTranscript(transcript);
-                        speechDraftRef.current = '';
-                    }
-                }),
-            ];
-            cleanup = () => subs.forEach(sub => sub.remove());
         } catch (error) {
-            console.warn('expo-speech-recognition not available:', error);
+            console.warn('expo-av not available:', error);
             setIsMicSupported(false);
         }
-        return () => { if (cleanup) cleanup(); };
-    }, [appendTranscript, extractTranscript, commitSpeechDraft]);
+        return () => {
+            if (nativeAutoStopRef.current) {
+                clearTimeout(nativeAutoStopRef.current);
+                nativeAutoStopRef.current = null;
+            }
+            const rec = nativeRecordingRef.current;
+            if (rec) {
+                rec.stopAndUnloadAsync().catch(() => { /* noop */ });
+                nativeRecordingRef.current = null;
+            }
+        };
+    }, []);
 
 
     useEffect(() => {
@@ -575,29 +564,91 @@ const ChatScreen = ({ route }) => {
             return;
         }
 
-        // Native mobile speech-to-text
-        try {
-            const { startSpeechRecognition, stopSpeechRecognition } = require('expo-speech-recognition');
-            
-            if (isListening) {
-                console.log('Stopping native STT');
-                commitSpeechDraft();
-                stopSpeechRecognition();
+        // Native: record with expo-av, upload to /api/transcribe (same as web).
+        const { Audio } = require('expo-av');
+        const langCode = language === 'ur' ? 'ur' : 'en';
+
+        // Second tap → stop, upload, append transcript.
+        if (isListening) {
+            const rec = nativeRecordingRef.current;
+            if (!rec) {
+                setIsListening(false);
+                return;
+            }
+            if (nativeAutoStopRef.current) {
+                clearTimeout(nativeAutoStopRef.current);
+                nativeAutoStopRef.current = null;
+            }
+            try {
+                await rec.stopAndUnloadAsync();
+            } catch (err) {
+                console.warn('stopAndUnloadAsync failed:', err);
+            }
+            setIsListening(false);
+            const uri = rec.getURI?.();
+            nativeRecordingRef.current = null;
+            try {
+                await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+            } catch { /* noop */ }
+
+            if (!uri) {
+                Alert.alert('No Audio Captured', 'The mic did not capture any audio. Try again.');
                 return;
             }
 
-            console.log('Starting native STT, language:', recognitionLang);
-            const result = await startSpeechRecognition({
-                lang: recognitionLang,
-                interimResults: true,
-            });
-            console.log('STT result:', result);
-            if (result?.transcript) {
-                appendTranscript(result.transcript);
+            setIsExtracting(true);
+            try {
+                const mimeType = Platform.OS === 'ios' ? 'audio/mp4' : 'audio/m4a';
+                const filename = Platform.OS === 'ios' ? 'speech.m4a' : 'speech.m4a';
+                const fileAsset = { uri, name: filename, mimeType, type: mimeType };
+                const result = await apiService.transcribeAudioFile(fileAsset, { language: langCode });
+                if (result?.transcript) {
+                    appendTranscript(result.transcript);
+                } else {
+                    Alert.alert('No Speech Detected', 'The mic did not catch any intelligible speech. Try again in a quieter place.');
+                }
+            } catch (err) {
+                console.error('transcribe failed:', err);
+                Alert.alert('Transcription Failed', err?.message || String(err));
+            } finally {
+                setIsExtracting(false);
             }
+            return;
+        }
+
+        // First tap → request permission, start recording.
+        try {
+            const perm = await Audio.requestPermissionsAsync();
+            if (!perm?.granted) {
+                Alert.alert(
+                    t('chat.voicePermissionTitle') || 'Microphone Permission',
+                    'Enable microphone access for LegalEase in your device settings, then try again.'
+                );
+                return;
+            }
+
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: true,
+                playsInSilentModeIOS: true,
+            });
+
+            const { recording } = await Audio.Recording.createAsync(
+                Audio.RecordingOptionsPresets.HIGH_QUALITY
+            );
+            nativeRecordingRef.current = recording;
+            setIsListening(true);
+
+            // Auto-stop after 60s so users can't leave the mic running indefinitely.
+            nativeAutoStopRef.current = setTimeout(() => {
+                if (nativeRecordingRef.current) {
+                    handleMic();
+                }
+            }, 60000);
         } catch (err) {
-            console.error('Native STT error:', err);
-            Alert.alert(t('chat.voiceUnavailableTitle'), `${t('chat.voiceUnavailableMessage')}: ${err?.message || err}`);
+            console.error('startAsync failed:', err);
+            setIsListening(false);
+            nativeRecordingRef.current = null;
+            Alert.alert(t('chat.voiceUnavailableTitle') || 'Mic Error', err?.message || String(err));
         }
     };
 
@@ -614,11 +665,13 @@ const ChatScreen = ({ route }) => {
             try { webRecognitionRef.current?.stop(); } catch { setIsListening(false); }
             return;
         }
-        try {
-            const { ExpoSpeechRecognitionModule } = require('expo-speech-recognition');
-            commitSpeechDraft();
-            ExpoSpeechRecognitionModule.stop();
-        } catch { setIsListening(false); }
+        // Native: expo-av recording. Delegate to handleMic so the same stop-and-
+        // upload path runs (ensures we always get a transcript round-trip).
+        if (nativeRecordingRef.current) {
+            handleMic();
+        } else {
+            setIsListening(false);
+        }
     };
 
     const handleSend = async (overrideText) => {
@@ -647,7 +700,7 @@ const ChatScreen = ({ route }) => {
             const response = await apiService.sendChatMessage(text, [...messages, userMessage], doc?.extractedText || null, doc?.name || null);
             setMessages(prev => prev.map(message => {
                 if (message.id !== assistantMessageId) return message;
-                return { ...message, content: response.response || t('chat.fallbackResponse'), sources: response.sources || [], isPending: false, timestamp: new Date().toISOString() };
+                return { ...message, content: response.response || t('chat.fallbackResponse'), sources: response.sources || [], isPending: false, isRefusal: Boolean(response.refusal_reason), refusalReason: response.refusal_reason || null, timestamp: new Date().toISOString() };
             }));
         } catch (err) {
             setMessages(prev => prev.map(message => {
@@ -677,9 +730,16 @@ const ChatScreen = ({ route }) => {
                     <Animated.View style={[st.heroWrap, { opacity: heroOpacity, transform: [{ scale: heroScale }] }]}>
                         <LawLogo size={isSmall ? 44 : 52} />
                         <Text style={[st.greeting, isSmall && { fontSize: 24, lineHeight: 30 }]}>
-                            {t('chat.greetingTitle')}
+                            LegalEase — Pakistani Law, in Plain Language
                         </Text>
-                        <Text style={st.greetingSub}>{t('chat.greetingSub')}</Text>
+                        <Text style={st.greetingSub}>
+                            I help non-lawyer Pakistani citizens understand the law in seven specific areas.{'\n'}I explain what the law says, what to do next, and where to find the official source. I&apos;m not a substitute for a lawyer.
+                        </Text>
+                        <View style={st.scopeChips}>
+                            {['Criminal', 'Civil', 'Family', 'Police', 'Land & Property', 'Religious', 'Banking & Financial', '1973 Constitution'].map((label) => (
+                                <Text key={label} style={st.scopeChip}>{label}</Text>
+                            ))}
+                        </View>
                     </Animated.View>
 
                     <FadeInView delay={180} distance={16}>
@@ -1059,6 +1119,28 @@ const st = StyleSheet.create({
     },
     historyText: { color: colors.textPrimary, fontSize: 14, fontWeight: '500', lineHeight: 20 },
     historyTime: { color: colors.textTertiary, fontSize: 12, marginTop: 4 },
+
+    // Scope chips (empty-state domain pills)
+    scopeChips: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        justifyContent: 'center',
+        marginTop: 12,
+        maxWidth: 360,
+        alignSelf: 'center',
+    },
+    scopeChip: {
+        fontSize: 12,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 999,
+        backgroundColor: colors.bgSecondary,
+        color: colors.textPrimary,
+        borderWidth: 1,
+        borderColor: colors.borderColor,
+        overflow: 'hidden',
+    },
 });
 
 export default ChatScreen;

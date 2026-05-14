@@ -92,8 +92,60 @@ export const searchService = {
       citation: r.citation,
       text: r.text.substring(0, 240) + (r.text.length > 240 ? '...' : ''),
       category: r.category,
-      url: 'https://pakistancode.gov.pk',
+      url: pakistanCodeUrlForCategory(r.category),
       citation_number: i + 1,
     }));
   },
 };
+
+// ----------------------------------------------------------------------------
+// Pakistan Code category → official URL
+// Source: BibTeX references collected from pakistancode.gov.pk.
+// Used to populate `SourceInfo.url` so the mobile CitationCard "View" button
+// deep-links to the correct catid page.
+// ----------------------------------------------------------------------------
+const PAKISTAN_CODE_BASE = 'https://pakistancode.gov.pk/english';
+
+const PAKISTAN_CODE_URLS: Record<string, string> = {
+  criminal: `${PAKISTAN_CODE_BASE}/LGu0xVD-apaUY2Fqa-ag%3D%3D&action=primary&catid=1`,
+  civil: `${PAKISTAN_CODE_BASE}/LGu0xVD-apaUY2Fqa-aw%3D%3D&action=primary&catid=2`,
+  family: `${PAKISTAN_CODE_BASE}/LGu0xVD-apaUY2Fqa-bA%3D%3D&action=primary&catid=3`,
+  police: `${PAKISTAN_CODE_BASE}/LGu0xVD-apaUY2Fqa-bw%3D%3D&action=primary&catid=6`,
+  property: `${PAKISTAN_CODE_BASE}/LGu0xVD-apaUY2Fqa-cQ%3D%3D&action=primary&catid=8`,
+  religious: `${PAKISTAN_CODE_BASE}/LGu0xVD-apaUY2Fqa-cg%3D%3D&action=primary&catid=9`,
+  banking: `${PAKISTAN_CODE_BASE}/LGu0xVD-apaUY2Fqa-apY%3D&action=primary&catid=10`,
+  constitution: `${PAKISTAN_CODE_BASE}/UY2FqaJw1-apaUY2Fqa-apaUY2Fvbpw%3D-sg-jjjjjjjjjjjjj`,
+};
+
+const pakistanCodeUrlForCategory = (category: string): string => {
+  if (!category) return `${PAKISTAN_CODE_BASE}/`;
+  const lower = category.toLowerCase();
+  for (const [key, url] of Object.entries(PAKISTAN_CODE_URLS)) {
+    if (lower.includes(key)) return url;
+  }
+  return `${PAKISTAN_CODE_BASE}/`;
+};
+
+export const LAW_REFERENCE_LINKS = `
+AVAILABLE SOURCE LINKS (Pakistan Code, https://pakistancode.gov.pk):
+- The Constitution of the Islamic Republic of Pakistan (1973) → ${PAKISTAN_CODE_URLS.constitution}
+- Criminal Laws of Pakistan → ${PAKISTAN_CODE_URLS.criminal}
+- Civil Laws of Pakistan → ${PAKISTAN_CODE_URLS.civil}
+- Family Laws of Pakistan → ${PAKISTAN_CODE_URLS.family}
+- Police Laws of Pakistan → ${PAKISTAN_CODE_URLS.police}
+- Land and Property Laws of Pakistan → ${PAKISTAN_CODE_URLS.property}
+- Islamic and Religious Laws of Pakistan → ${PAKISTAN_CODE_URLS.religious}
+- Banking and Financial Laws of Pakistan → ${PAKISTAN_CODE_URLS.banking}
+
+LINKING GUIDANCE (do NOT change how you normally cite laws):
+- Cite specific statutes, ordinances, and sections exactly as you already would.
+- If a statute you cite belongs to one of the categories above (e.g. the Pakistan
+  Penal Code belongs to Criminal Laws; the Muslim Family Laws Ordinance belongs
+  to Family Laws), attach the matching category URL as a markdown link the FIRST
+  time that category is mentioned in your answer.
+  Example: "Section 378 of the Pakistan Penal Code 1860 ([Criminal Laws of Pakistan](${PAKISTAN_CODE_URLS.criminal})) defines theft as..."
+- If a law you cite has NO matching category above, cite it plainly with no link.
+  Do not invent URLs and do not link to other domains.
+- Only the law-category names above should be hyperlinked; do not wrap unrelated
+  words or generic phrases.
+`;

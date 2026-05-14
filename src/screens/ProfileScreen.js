@@ -5,6 +5,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Animated, Platfor
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, typography, shadows, gradients } from '../constants/theme';
 import FadeInView from '../components/FadeInView';
 import AnimatedPressable from '../components/AnimatedPressable';
@@ -38,6 +39,7 @@ const Row = ({ icon, label, detail, last, onPress }) => (
 
 const ProfileScreen = ({ user, onLogout }) => {
     const navigation = useNavigation();
+    const insets = useSafeAreaInsets();
     const { settings, t } = useAppSettings();
     const [usageStats, setUsageStats] = useState({ totalChats: 0, totalDocuments: 0, hoursSaved: 0 });
 
@@ -105,7 +107,11 @@ const ProfileScreen = ({ user, onLogout }) => {
                 </AnimatedPressable>
             </View>
 
-            <ScrollView style={st.scrollRoot} contentContainerStyle={st.content} showsVerticalScrollIndicator={false}>
+            <ScrollView
+                style={st.scrollRoot}
+                contentContainerStyle={[st.content, { paddingBottom: 100 + insets.bottom }]}
+                showsVerticalScrollIndicator={false}
+            >
                 {/* User info */}
                 <FadeInView delay={0} distance={14}>
                     <View style={st.userSection}>
